@@ -1,10 +1,10 @@
 import * as dotenv from "dotenv";
 dotenv.config();
-import { NestFactory, Reflector } from "@nestjs/core";
+import { NestFactory } from "@nestjs/core";
 import { ValidationPipe } from "@nestjs/common";
 import { SwaggerModule, DocumentBuilder } from "@nestjs/swagger";
 import { AllExceptionsFilter } from "./filters/http-exception.filter";
-import { ClassSerializerInterceptor } from "@nestjs/common";
+import { ResponseInterceptor } from "./interceptors/response.interceptor";
 import { AppModule } from "./app.module";
 
 async function bootstrap() {
@@ -27,6 +27,7 @@ async function bootstrap() {
   });
 
   app.useGlobalFilters(new AllExceptionsFilter());
+  app.useGlobalInterceptors(new ResponseInterceptor());
 
   // Swagger documentation
   const config = new DocumentBuilder()
@@ -54,4 +55,4 @@ async function bootstrap() {
   console.log(`Swagger docs available at: http://localhost:${port}/api`);
 }
 
-bootstrap();
+void bootstrap();

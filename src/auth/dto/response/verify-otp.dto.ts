@@ -10,8 +10,4 @@ export class VerifyOtpResponseDto {
 
   @Expose()
   session: SessionResponseDto;
-
-  @Expose()
-  @IsString()
-  message: string;
 }

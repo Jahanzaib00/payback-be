@@ -5,7 +5,4 @@ import { SessionResponseDto } from "./session.dto";
 export class RefreshTokenResponseDto {
   @Expose()
   session: SessionResponseDto;
-
-  @Expose()
-  message: string;
 }

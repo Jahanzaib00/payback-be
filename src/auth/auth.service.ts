@@ -24,6 +24,7 @@ import {
   UserResponseDto,
 } from "./dto/response";
 import { generateRandomCode } from "../util/random.util";
+import { normalizeEmail } from "../util/email.util";
 import { User } from "@prisma/client";
 
 @Injectable()
@@ -39,17 +40,18 @@ export class AuthService {
 
   async signUp(signUpDto: SignUpDto): Promise<SignUpResponseDto> {
     const { email, password, name } = signUpDto;
+    const normalizedEmail = normalizeEmail(email);
 
     // Check if user already exists
     const existingUser = await this.prisma.user.findUnique({
-      where: { email },
+      where: { email: normalizedEmail },
     });
     if (existingUser) {
       throw new ConflictException("User already exists with this email");
     }
 
     const { user: supabaseUser } = await this.supabaseService.signUp(
-      email,
+      normalizedEmail,
       password,
       { name }
     );
@@ -63,7 +65,7 @@ export class AuthService {
       const user = await this.prisma.user.create({
         data: {
           id: supabaseUser.id,
-          email,
+          email: normalizedEmail,
           name,
           referralCode: generateRandomCode(),
         },
@@ -80,7 +82,6 @@ export class AuthService {
 
       return {
         user: this.formatUser(user),
-        message: "User signed up successfully",
       };
     } catch (error) {
       console.log(error);
@@ -93,9 +94,10 @@ export class AuthService {
 
   async signIn(signInDto: SignInDto): Promise<SignInResponseDto> {
     const { email, password } = signInDto;
+    const normalizedEmail = normalizeEmail(email);
 
     const { user: supabaseUser, session } = await this.supabaseService.signIn(
-      email,
+      normalizedEmail,
       password
     );
 
@@ -109,6 +111,10 @@ export class AuthService {
 
     if (!user) {
       throw new UnauthorizedException("User not found in database");
+    }
+
+    if (!user.emailVerified) {
+      throw new UnauthorizedException("Your email is not verified");
     }
 
     return {
@@ -127,14 +133,15 @@ export class AuthService {
 
     const payload = await this.verifyGoogleToken(idToken);
     const { email, name, email_verified } = payload;
+    const normalizedEmail = normalizeEmail(email);
 
     // Check if user exists
-    let user = await this.prisma.user.findUnique({ where: { email } });
+    let user = await this.prisma.user.findUnique({ where: { email: normalizedEmail } });
 
     if (!user) {
       // Create user in Supabase
       const supabaseUser = await this.supabaseService.createUserWithAdmin(
-        email,
+        normalizedEmail,
         undefined, // No password for Google users
         { name, provider: "google" }
       );
@@ -143,7 +150,7 @@ export class AuthService {
       user = await this.prisma.user.create({
         data: {
           id: supabaseUser.id,
-          email,
+          email: normalizedEmail,
           name,
           emailVerified: email_verified,
           referralCode: generateRandomCode(),
@@ -151,7 +158,7 @@ export class AuthService {
       });
     }
 
-    const accessToken = await this.supabaseService.generateMagicLink(email);
+    const accessToken = await this.supabaseService.generateMagicLink(normalizedEmail);
 
     return {
       user: this.formatUser(user),
@@ -166,12 +173,10 @@ export class AuthService {
 
   async verifyOtp(verifyOtpDto: VerifyOtpDto): Promise<VerifyOtpResponseDto> {
     const { email, token } = verifyOtpDto;
+    const normalizedEmail = normalizeEmail(email);
 
-    const { user: supabaseUser, session } = await this.supabaseService.verifyOtp(
-      email,
-      token,
-      "email"
-    );
+    const { user: supabaseUser, session } =
+      await this.supabaseService.verifyOtp(normalizedEmail, token, "email");
 
     // Check if user already exists in database
     let user = await this.prisma.user.findUnique({
@@ -196,19 +201,17 @@ export class AuthService {
         access_token: session.access_token,
         refresh_token: session.refresh_token,
       },
-      message: "Email verified successfully",
     };
   }
 
   async resendOtp(resendOtpDto: ResendOtpDto) {
     const { email } = resendOtpDto;
+    const normalizedEmail = normalizeEmail(email);
 
-    const { error } = await this.supabaseService.sendVerificationEmail(email);
+    const { error } = await this.supabaseService.sendVerificationEmail(normalizedEmail);
     if (error) {
       throw new Error(error.message || "Failed to resend OTP");
     }
-
-    return { message: "OTP has been resent to your email address." };
   }
 
   async refreshToken(
@@ -236,7 +239,6 @@ export class AuthService {
         access_token: session.access_token,
         refresh_token: session.refresh_token,
       },
-      message: "Token refreshed successfully",
     };
   }
 

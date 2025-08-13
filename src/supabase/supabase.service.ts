@@ -61,9 +61,6 @@ export class SupabaseService {
     });
 
     if (error) {
-      if (error.message.includes("already registered")) {
-        throw new BadRequestException("Email already exists");
-      }
       throw new BadRequestException(error.message);
     }
 
@@ -84,6 +81,7 @@ export class SupabaseService {
     if (error) {
       throw new UnauthorizedException(error.message || "Failed to sign in");
     }
+    console.log(data);
 
     return data;
   }

@@ -7,8 +7,4 @@ export class SignUpResponseDto {
   @Expose()
   @IsOptional()
   user?: UserResponseDto;
-
-  @Expose()
-  @IsString()
-  message: string;
 }

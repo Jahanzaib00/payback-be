@@ -3,13 +3,28 @@ import {
   UnauthorizedException,
   ConflictException,
   BadRequestException,
-} from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { OAuth2Client } from 'google-auth-library';
-import { PrismaService } from '../prisma/prisma.service';
-import { SupabaseService } from '../supabase/supabase.service';
-import { SignUpDto, SignInDto, GoogleAuthDto } from './dto/auth.dto';
-import { generateRandomCode } from '../util/random.util';
+} from "@nestjs/common";
+import { OAuth2Client } from "google-auth-library";
+import { PrismaService } from "../prisma/prisma.service";
+import { SupabaseService } from "../supabase/supabase.service";
+import {
+  SignUpDto,
+  SignInDto,
+  GoogleAuthDto,
+  VerifyOtpDto,
+  ResendOtpDto,
+  RefreshTokenDto,
+} from "./dto/request";
+import {
+  SignUpResponseDto,
+  SignInResponseDto,
+  GoogleAuthResponseDto,
+  VerifyOtpResponseDto,
+  RefreshTokenResponseDto,
+  UserResponseDto,
+} from "./dto/response";
+import { generateRandomCode } from "../util/random.util";
+import { User } from "@prisma/client";
 
 @Injectable()
 export class AuthService {
@@ -17,38 +32,37 @@ export class AuthService {
 
   constructor(
     private prisma: PrismaService,
-    private supabaseService: SupabaseService,
+    private supabaseService: SupabaseService
   ) {
     this.googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
   }
 
-  async signUp(signUpDto: SignUpDto) {
+  async signUp(signUpDto: SignUpDto): Promise<SignUpResponseDto> {
     const { email, password, name } = signUpDto;
 
-    const supabaseAdmin = this.supabaseService.getAdminClient();
+    // Check if user already exists
+    const existingUser = await this.prisma.user.findUnique({
+      where: { email },
+    });
+    if (existingUser) {
+      throw new ConflictException("User already exists with this email");
+    }
 
-    // Create user in Supabase
-    const { data: authUser, error } = await supabaseAdmin.auth.admin.createUser(
-      {
-        email,
-        password,
-        email_confirm: false,
-        user_metadata: { name },
-      },
+    const { user: supabaseUser } = await this.supabaseService.signUp(
+      email,
+      password,
+      { name }
     );
 
-    if (error) {
-      if (error.message.includes('already registered')) {
-        throw new ConflictException('Email already exists');
-      }
-      throw new BadRequestException(error.message);
+    if (!supabaseUser) {
+      throw new BadRequestException("Failed to create user");
     }
 
     try {
       // Create user in Prisma
       const user = await this.prisma.user.create({
         data: {
-          id: authUser.user.id,
+          id: supabaseUser.id,
           email,
           name,
           referralCode: generateRandomCode(),
@@ -64,124 +78,29 @@ export class AuthService {
         });
       }
 
-      return { user: this.formatUser(user), needsVerification: true };
+      return {
+        user: this.formatUser(user),
+        message: "User signed up successfully",
+      };
     } catch (error) {
-      // Cleanup Supabase user if Prisma fails
-      await supabaseAdmin.auth.admin.deleteUser(authUser.user.id);
-      throw error;
+      console.log(error);
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new BadRequestException("Failed to create account");
     }
   }
 
-  async signIn(signInDto: SignInDto) {
+  async signIn(signInDto: SignInDto): Promise<SignInResponseDto> {
     const { email, password } = signInDto;
 
-    const supabase = this.supabaseService.getClient();
-    const { data, error } = await supabase.auth.signInWithPassword({
+    const { user: supabaseUser, session } = await this.supabaseService.signIn(
       email,
-      password,
-    });
+      password
+    );
 
-    if (error) {
-      throw new UnauthorizedException('Invalid credentials');
-    }
-
-    const user = await this.prisma.user.findUnique({
-      where: { id: data.user.id },
-    });
-
-    if (!user) {
-      throw new UnauthorizedException('User not found');
-    }
-
-    return {
-      user: this.formatUser(user),
-      session: {
-        access_token: data.session.access_token,
-        refresh_token: data.session.refresh_token,
-        expires_at: data.session.expires_at,
-      },
-    };
-  }
-
-  async googleAuth(googleAuthDto: GoogleAuthDto) {
-    const { idToken } = googleAuthDto;
-
-    const ticket = await this.googleClient.verifyIdToken({
-      idToken,
-      audience: process.env.GOOGLE_CLIENT_ID,
-    });
-
-    const payload = ticket.getPayload();
-    if (!payload) {
-      throw new UnauthorizedException('Invalid Google token');
-    }
-
-    const { email, name, email_verified } = payload;
-
-    if (!email || !email_verified) {
-      throw new UnauthorizedException('Email is required and must be verified');
-    }
-
-    // Check if user exists
-    let user = await this.prisma.user.findUnique({ where: { email } });
-
-    if (!user) {
-      // Create in Supabase
-      const supabaseAdmin = this.supabaseService.getAdminClient();
-      const { data: authUser, error } =
-        await supabaseAdmin.auth.admin.createUser({
-          email,
-          email_confirm: email_verified,
-          user_metadata: { name, provider: 'google' },
-        });
-
-      if (error) {
-        throw new BadRequestException(error.message);
-      }
-
-      // Create in Prisma
-      user = await this.prisma.user.create({
-        data: {
-          id: authUser.user.id,
-          email,
-          name: name || 'Google User',
-          emailVerified: email_verified || false,
-          referralCode: generateRandomCode(),
-        },
-      });
-
-      if (user.referredByUserId) {
-        await this.prisma.referral.create({
-          data: {
-            referrerUserId: user.referredByUserId,
-            referredUserId: user.id,
-          },
-        });
-      }
-    }
-
-    // Generate session
-    const supabaseAdmin = this.supabaseService.getAdminClient();
-    const { data: sessionData } = await supabaseAdmin.auth.admin.generateLink({
-      type: 'magiclink',
-      email,
-    });
-
-    return {
-      user: this.formatUser(user),
-      session: { access_token: sessionData.properties?.hashed_token },
-    };
-  }
-
-  async validateToken(token: string) {
-    const supabase = this.supabaseService.getClient();
-    const {
-      data: { user: supabaseUser },
-      error,
-    } = await supabase.auth.getUser(token);
-
-    if (error || !supabaseUser) {
-      throw new UnauthorizedException('Invalid token');
+    if (!supabaseUser || !session) {
+      throw new UnauthorizedException("Invalid credentials");
     }
 
     const user = await this.prisma.user.findUnique({
@@ -189,29 +108,194 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new UnauthorizedException('User not found');
+      throw new UnauthorizedException("User not found in database");
+    }
+
+    return {
+      user: this.formatUser(user),
+      session: {
+        access_token: session.access_token,
+        refresh_token: session.refresh_token,
+      },
+    };
+  }
+
+  async googleAuth(
+    googleAuthDto: GoogleAuthDto
+  ): Promise<GoogleAuthResponseDto> {
+    const { idToken } = googleAuthDto;
+
+    const payload = await this.verifyGoogleToken(idToken);
+    const { email, name, email_verified } = payload;
+
+    // Check if user exists
+    let user = await this.prisma.user.findUnique({ where: { email } });
+
+    if (!user) {
+      // Create user in Supabase
+      const supabaseUser = await this.supabaseService.createUserWithAdmin(
+        email,
+        undefined, // No password for Google users
+        { name, provider: "google" }
+      );
+
+      // Create user in database
+      user = await this.prisma.user.create({
+        data: {
+          id: supabaseUser.id,
+          email,
+          name,
+          emailVerified: email_verified,
+          referralCode: generateRandomCode(),
+        },
+      });
+    }
+
+    const accessToken = await this.supabaseService.generateMagicLink(email);
+
+    return {
+      user: this.formatUser(user),
+      session: accessToken
+        ? {
+            access_token: accessToken,
+            refresh_token: "",
+          }
+        : undefined,
+    };
+  }
+
+  async verifyOtp(verifyOtpDto: VerifyOtpDto): Promise<VerifyOtpResponseDto> {
+    const { email, token } = verifyOtpDto;
+
+    const { user: supabaseUser, session } = await this.supabaseService.verifyOtp(
+      email,
+      token,
+      "email"
+    );
+
+    // Check if user already exists in database
+    let user = await this.prisma.user.findUnique({
+      where: { id: supabaseUser.id },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException("User not found in database");
+    }
+    if (user.emailVerified) {
+      throw new ConflictException("Email already verified");
+    }
+
+    user = await this.prisma.user.update({
+      where: { id: supabaseUser.id },
+      data: { emailVerified: true },
+    });
+
+    return {
+      user: this.formatUser(user),
+      session: {
+        access_token: session.access_token,
+        refresh_token: session.refresh_token,
+      },
+      message: "Email verified successfully",
+    };
+  }
+
+  async resendOtp(resendOtpDto: ResendOtpDto) {
+    const { email } = resendOtpDto;
+
+    const { error } = await this.supabaseService.sendVerificationEmail(email);
+    if (error) {
+      throw new Error(error.message || "Failed to resend OTP");
+    }
+
+    return { message: "OTP has been resent to your email address." };
+  }
+
+  async refreshToken(
+    refreshTokenDto: RefreshTokenDto
+  ): Promise<RefreshTokenResponseDto> {
+    const { refreshToken } = refreshTokenDto;
+
+    const { session, user: supabaseUser } =
+      await this.supabaseService.refreshToken(refreshToken);
+
+    if (!session || !supabaseUser) {
+      throw new UnauthorizedException("Failed to refresh token");
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: supabaseUser.id },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException("User not found in database");
+    }
+
+    return {
+      session: {
+        access_token: session.access_token,
+        refresh_token: session.refresh_token,
+      },
+      message: "Token refreshed successfully",
+    };
+  }
+
+  async validateToken(token: string) {
+    const supabaseUser = await this.supabaseService.getUserFromToken(token);
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: supabaseUser.id },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException("User not found");
     }
 
     return user;
   }
 
-  private async getReferrerUserId(
-    referralCode: string,
-  ): Promise<string | null> {
-    const referrer = await this.prisma.user.findUnique({
-      where: { referralCode },
-      select: { id: true },
-    });
-    return referrer?.id || null;
+  //private functions
+  private async verifyGoogleToken(idToken: string) {
+    try {
+      const ticket = await this.googleClient.verifyIdToken({
+        idToken,
+        audience: process.env.GOOGLE_CLIENT_ID,
+      });
+
+      const payload = ticket.getPayload();
+      if (!payload) {
+        throw new UnauthorizedException("Invalid Google token");
+      }
+
+      const { email, name, email_verified, picture, sub } = payload;
+
+      if (!email || !email_verified) {
+        throw new UnauthorizedException(
+          "Email is required and must be verified"
+        );
+      }
+
+      return {
+        email,
+        name: name || "Google User",
+        email_verified,
+        picture,
+        sub,
+      };
+    } catch (error) {
+      throw new UnauthorizedException("Invalid Google token");
+    }
   }
 
-  private formatUser(user: any) {
+  private formatUser(user: User): UserResponseDto {
     return {
       id: user.id,
       email: user.email,
       name: user.name,
       emailVerified: user.emailVerified,
       referralCode: user.referralCode,
+      pfCoinBalance: user.pfCoinBalance.toString(),
+      subscriptionStatus: user.subscriptionStatus,
     };
   }
 }

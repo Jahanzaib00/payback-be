@@ -1,8 +1,10 @@
 import * as dotenv from "dotenv";
 dotenv.config();
-import { NestFactory } from "@nestjs/core";
+import { NestFactory, Reflector } from "@nestjs/core";
 import { ValidationPipe } from "@nestjs/common";
 import { SwaggerModule, DocumentBuilder } from "@nestjs/swagger";
+import { AllExceptionsFilter } from "./filters/http-exception.filter";
+import { ClassSerializerInterceptor } from "@nestjs/common";
 import { AppModule } from "./app.module";
 
 async function bootstrap() {
@@ -17,15 +19,16 @@ async function bootstrap() {
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,
-    })
+    }),
   );
 
   app.setGlobalPrefix("api", {
     exclude: ["/"],
   });
 
-  // Swagger documentation
+  app.useGlobalFilters(new AllExceptionsFilter());
 
+  // Swagger documentation
   const config = new DocumentBuilder()
     .setTitle("Payback Fitness API Documentation")
     .addBearerAuth(
@@ -36,7 +39,7 @@ async function bootstrap() {
         name: "Authorization",
         in: "header",
       },
-      "bearer"
+      "bearer",
     )
     .addSecurityRequirements("bearer")
     .build();

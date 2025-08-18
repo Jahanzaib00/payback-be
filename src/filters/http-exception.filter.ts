@@ -4,7 +4,7 @@ import {
   ArgumentsHost,
   HttpException,
 } from "@nestjs/common";
-import { Response } from "express";
+import { Response, Request } from "express";
 import { ResponseUtil } from "../util/response.util";
 
 @Catch()
@@ -12,6 +12,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
+    const request = ctx.getRequest<Request>();
+
+    const requestPath = request.url;
 
     let status = 500;
     let message = "Internal server error";
@@ -35,6 +38,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     console.error("Error Occurred:", {
       name: (exception as any)?.name,
       message: (exception as any)?.message,
+      path: requestPath,
     });
 
     const errorResponse = ResponseUtil.error(message, status, null);

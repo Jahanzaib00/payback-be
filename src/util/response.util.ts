@@ -9,7 +9,7 @@ export class ResponseUtil {
   static success<T>(
     data: T,
     message: string = "Operation successful",
-    status: number = 200
+    status: number = 200,
   ): ApiResponse<T> {
     return {
       success: true,
@@ -22,7 +22,7 @@ export class ResponseUtil {
   static error(
     message: string = "Operation failed",
     status: number = 500,
-    data: null = null
+    data: null = null,
   ): ApiResponse<null> {
     return {
       success: false,

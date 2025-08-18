@@ -1,4 +1,11 @@
-import { Controller, Post, Body, HttpCode, HttpStatus } from "@nestjs/common";
+import {
+  Controller,
+  Post,
+  Body,
+  HttpCode,
+  HttpStatus,
+  UseGuards,
+} from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { AuthService } from "./auth.service";
 import {
@@ -8,6 +15,9 @@ import {
   VerifyOtpDto,
   ResendOtpDto,
   RefreshTokenDto,
+  ForgotPasswordDto,
+  VerifyForgotPasswordOtpDto,
+  SetNewPasswordDto,
 } from "./dto/request";
 import {
   SignUpApiResponseDto,
@@ -16,10 +26,15 @@ import {
   VerifyOtpApiResponseDto,
   RefreshTokenApiResponseDto,
   ResendOtpApiResponseDto,
+  ForgotPasswordApiResponseDto,
+  VerifyForgotPasswordOtpApiResponseDto,
+  SetNewPasswordApiResponseDto,
 } from "./dto/api-response";
 import { ResponseUtil } from "../util/response.util";
+import { JwtAuthGuard } from "../guards/jwt-auth.guard";
+import { GetUserId } from "../decorators/user-id.decorator";
 
-@ApiTags("Authentication")
+@ApiTags("auth")
 @Controller("auth")
 export class AuthController {
   constructor(private authService: AuthService) {}
@@ -27,10 +42,10 @@ export class AuthController {
   @Post("signup")
   @HttpCode(HttpStatus.CREATED)
   async signUp(@Body() signUpDto: SignUpDto): Promise<SignUpApiResponseDto> {
-    const result = await this.authService.signUp(signUpDto);
+    await this.authService.signUp(signUpDto);
     return ResponseUtil.success(
-      result,
-      "User registered successfully. Please check your email to verify your account.",
+      undefined,
+      "Please check your email to verify your account.",
       HttpStatus.CREATED
     );
   }
@@ -90,6 +105,49 @@ export class AuthController {
     return ResponseUtil.success(
       result,
       "Token refreshed successfully",
+      HttpStatus.OK
+    );
+  }
+
+  @Post("forgot-password")
+  @HttpCode(HttpStatus.OK)
+  async forgotPassword(
+    @Body() forgotPasswordDto: ForgotPasswordDto
+  ): Promise<ForgotPasswordApiResponseDto> {
+    await this.authService.forgotPassword(forgotPasswordDto);
+    return ResponseUtil.success(
+      undefined,
+      "Password reset OTP sent",
+      HttpStatus.OK
+    );
+  }
+
+  @Post("verify-forgot-password-otp")
+  @HttpCode(HttpStatus.OK)
+  async verifyForgotPasswordOtp(
+    @Body() verifyForgotPasswordOtpDto: VerifyForgotPasswordOtpDto
+  ): Promise<VerifyForgotPasswordOtpApiResponseDto> {
+    const result = await this.authService.verifyForgotPasswordOtp(
+      verifyForgotPasswordOtpDto
+    );
+    return ResponseUtil.success(
+      result,
+      "OTP verified successfully",
+      HttpStatus.OK
+    );
+  }
+
+  @Post("set-new-password")
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard)
+  async setNewPassword(
+    @GetUserId() userId: string,
+    @Body() setNewPasswordDto: SetNewPasswordDto
+  ): Promise<SetNewPasswordApiResponseDto> {
+    await this.authService.setNewPassword(userId, setNewPasswordDto);
+    return ResponseUtil.success(
+      undefined,
+      "Password updated successfully",
       HttpStatus.OK
     );
   }

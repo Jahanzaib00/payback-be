@@ -191,6 +191,47 @@ export class SupabaseService {
     };
   }
 
+  async sendPasswordResetOtp(email: string) {
+    const { data, error } =
+      await this.supabase.auth.resetPasswordForEmail(email);
+
+    if (error) {
+      throw new BadRequestException(
+        error.message || "Failed to send reset OTP",
+      );
+    }
+
+    return data;
+  }
+
+  async verifyPasswordResetOtp(email: string, token: string) {
+    const { data, error } = await this.supabase.auth.verifyOtp({
+      email,
+      token,
+      type: "recovery",
+    });
+
+    if (error) {
+      throw new BadRequestException(error.message || "Invalid reset OTP");
+    }
+
+    return data;
+  }
+
+  async updateUserPassword(newPassword: string) {
+    const { data, error } = await this.supabase.auth.updateUser({
+      password: newPassword,
+    });
+
+    if (error) {
+      throw new BadRequestException(
+        error.message || "Failed to update password",
+      );
+    }
+
+    return data;
+  }
+
   async deleteUser(userId: string): Promise<void> {
     const { error } = await this.adminSupabase.auth.admin.deleteUser(userId);
     if (error) {

@@ -11,7 +11,10 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   // CORS configuration
-  app.enableCors();
+  app.enableCors({
+    origin: "*",
+    credentials: true,
+  });
 
   // Global validation pipe
   app.useGlobalPipes(
@@ -19,7 +22,7 @@ async function bootstrap() {
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,
-    }),
+    })
   );
 
   app.setGlobalPrefix("api", {
@@ -40,7 +43,7 @@ async function bootstrap() {
         name: "Authorization",
         in: "header",
       },
-      "bearer",
+      "bearer"
     )
     .addSecurityRequirements("bearer")
     .build();

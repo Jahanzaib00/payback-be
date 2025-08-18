@@ -4,6 +4,8 @@ import { PrismaModule } from "./prisma/prisma.module";
 import { SupabaseModule } from "./supabase/supabase.module";
 import { AuthModule } from "./auth/auth.module";
 import { ReferralModule } from "./referral/referral.module";
+import { AppService } from "./app.service";
+import { AppController } from "./app.controller";
 
 @Module({
   imports: [
@@ -15,5 +17,7 @@ import { ReferralModule } from "./referral/referral.module";
     AuthModule,
     ReferralModule,
   ],
+  controllers: [AppController],
+  providers: [AppService],
 })
 export class AppModule {}

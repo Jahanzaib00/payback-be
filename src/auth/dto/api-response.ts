@@ -1,10 +1,10 @@
 import { ApiProperty } from "@nestjs/swagger";
 import {
-  SignUpResponseDto,
   SignInResponseDto,
   GoogleAuthResponseDto,
   VerifyOtpResponseDto,
   RefreshTokenResponseDto,
+  VerifyForgotPasswordOtpResponseDto,
 } from "./response";
 
 export class SignUpApiResponseDto {
@@ -16,9 +16,6 @@ export class SignUpApiResponseDto {
 
   @ApiProperty()
   status: number;
-
-  @ApiProperty({ type: SignUpResponseDto })
-  data?: SignUpResponseDto;
 }
 
 export class SignInApiResponseDto {
@@ -94,4 +91,40 @@ export class ResendOtpApiResponseDto {
 
   @ApiProperty({ type: ResendOtpData })
   data?: ResendOtpData;
+}
+
+export class ForgotPasswordApiResponseDto {
+  @ApiProperty()
+  success: boolean;
+
+  @ApiProperty()
+  message: string;
+
+  @ApiProperty()
+  status: number;
+}
+
+export class VerifyForgotPasswordOtpApiResponseDto {
+  @ApiProperty()
+  success: boolean;
+
+  @ApiProperty()
+  message: string;
+
+  @ApiProperty()
+  status: number;
+
+  @ApiProperty({ type: VerifyForgotPasswordOtpResponseDto })
+  data?: VerifyForgotPasswordOtpResponseDto;
+}
+
+export class SetNewPasswordApiResponseDto {
+  @ApiProperty()
+  success: boolean;
+
+  @ApiProperty()
+  message: string;
+
+  @ApiProperty()
+  status: number;
 }

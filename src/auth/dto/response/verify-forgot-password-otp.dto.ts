@@ -1,12 +1,9 @@
 import { Exclude, Expose } from "class-transformer";
-import { UserResponseDto } from "./user.dto";
+import { IsString } from "class-validator";
 import { SessionResponseDto } from "./session.dto";
 
 @Exclude()
-export class VerifyOtpResponseDto {
-  @Expose()
-  user: UserResponseDto;
-
+export class VerifyForgotPasswordOtpResponseDto {
   @Expose()
   session: SessionResponseDto;
 }

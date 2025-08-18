@@ -4,3 +4,6 @@ export * from "./google-auth.dto";
 export * from "./verify-otp.dto";
 export * from "./resend-otp.dto";
 export * from "./refresh-token.dto";
+export * from "./forgot-password.dto";
+export * from "./verify-forgot-password-otp.dto";
+export * from "./set-new-password.dto";

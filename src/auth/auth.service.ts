@@ -14,14 +14,17 @@ import {
   VerifyOtpDto,
   ResendOtpDto,
   RefreshTokenDto,
+  ForgotPasswordDto,
+  VerifyForgotPasswordOtpDto,
+  SetNewPasswordDto,
 } from "./dto/request";
 import {
-  SignUpResponseDto,
   SignInResponseDto,
   GoogleAuthResponseDto,
   VerifyOtpResponseDto,
   RefreshTokenResponseDto,
   UserResponseDto,
+  VerifyForgotPasswordOtpResponseDto,
 } from "./dto/response";
 import { generateRandomCode } from "../util/random.util";
 import { normalizeEmail } from "../util/email.util";
@@ -38,7 +41,7 @@ export class AuthService {
     this.googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
   }
 
-  async signUp(signUpDto: SignUpDto): Promise<SignUpResponseDto> {
+  async signUp(signUpDto: SignUpDto) {
     const { email, password, name } = signUpDto;
     const normalizedEmail = normalizeEmail(email);
 
@@ -46,6 +49,7 @@ export class AuthService {
     const existingUser = await this.prisma.user.findUnique({
       where: { email: normalizedEmail },
     });
+
     if (existingUser) {
       throw new ConflictException("User already exists with this email");
     }
@@ -60,36 +64,7 @@ export class AuthService {
       throw new BadRequestException("Failed to create user");
     }
 
-    try {
-      // Create user in Prisma
-      const user = await this.prisma.user.create({
-        data: {
-          id: supabaseUser.id,
-          email: normalizedEmail,
-          name,
-          referralCode: generateRandomCode(),
-        },
-      });
-
-      if (user.referredByUserId) {
-        await this.prisma.referral.create({
-          data: {
-            referrerUserId: user.referredByUserId,
-            referredUserId: user.id,
-          },
-        });
-      }
-
-      return {
-        user: this.formatUser(user),
-      };
-    } catch (error) {
-      console.log(error);
-      if (error instanceof BadRequestException) {
-        throw error;
-      }
-      throw new BadRequestException("Failed to create account");
-    }
+    return;
   }
 
   async signIn(signInDto: SignInDto): Promise<SignInResponseDto> {
@@ -110,11 +85,9 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new UnauthorizedException("User not found in database");
-    }
-
-    if (!user.emailVerified) {
-      throw new UnauthorizedException("Your email is not verified");
+      throw new UnauthorizedException(
+        "User account not found. Please sign up first."
+      );
     }
 
     return {
@@ -135,8 +108,10 @@ export class AuthService {
     const { email, name, email_verified } = payload;
     const normalizedEmail = normalizeEmail(email);
 
-    // Check if user exists
-    let user = await this.prisma.user.findUnique({ where: { email: normalizedEmail } });
+    // Check if user exists in database
+    let user = await this.prisma.user.findUnique({
+      where: { email: normalizedEmail },
+    });
 
     if (!user) {
       // Create user in Supabase
@@ -146,7 +121,7 @@ export class AuthService {
         { name, provider: "google" }
       );
 
-      // Create user in database
+      // Create user in database (Google users are automatically verified)
       user = await this.prisma.user.create({
         data: {
           id: supabaseUser.id,
@@ -158,7 +133,8 @@ export class AuthService {
       });
     }
 
-    const accessToken = await this.supabaseService.generateMagicLink(normalizedEmail);
+    const accessToken =
+      await this.supabaseService.generateMagicLink(normalizedEmail);
 
     return {
       user: this.formatUser(user),
@@ -183,17 +159,28 @@ export class AuthService {
       where: { id: supabaseUser.id },
     });
 
-    if (!user) {
-      throw new UnauthorizedException("User not found in database");
-    }
-    if (user.emailVerified) {
-      throw new ConflictException("Email already verified");
-    }
+    if (user) {
+      // User already exists, just verify if not already verified
+      if (user.emailVerified) {
+        throw new ConflictException("Email already verified");
+      }
 
-    user = await this.prisma.user.update({
-      where: { id: supabaseUser.id },
-      data: { emailVerified: true },
-    });
+      user = await this.prisma.user.update({
+        where: { id: supabaseUser.id },
+        data: { emailVerified: true },
+      });
+    } else {
+      // Create user in database for the first time
+      user = await this.prisma.user.create({
+        data: {
+          id: supabaseUser.id,
+          email: normalizedEmail,
+          name: supabaseUser.name,
+          emailVerified: true,
+          referralCode: generateRandomCode(),
+        },
+      });
+    }
 
     return {
       user: this.formatUser(user),
@@ -208,10 +195,13 @@ export class AuthService {
     const { email } = resendOtpDto;
     const normalizedEmail = normalizeEmail(email);
 
-    const { error } = await this.supabaseService.sendVerificationEmail(normalizedEmail);
+    const { error } =
+      await this.supabaseService.sendVerificationEmail(normalizedEmail);
     if (error) {
       throw new Error(error.message || "Failed to resend OTP");
     }
+
+    return;
   }
 
   async refreshToken(
@@ -254,6 +244,85 @@ export class AuthService {
     }
 
     return user;
+  }
+
+  async forgotPassword(forgotPasswordDto: ForgotPasswordDto) {
+    const { email } = forgotPasswordDto;
+    const normalizedEmail = normalizeEmail(email);
+
+    // Check if user exists in our database first
+    const user = await this.prisma.user.findUnique({
+      where: { email: normalizedEmail },
+    });
+
+    if (!user) {
+      return;
+    }
+
+    await this.supabaseService.sendPasswordResetOtp(normalizedEmail);
+
+    return;
+  }
+
+  async verifyForgotPasswordOtp(
+    verifyForgotPasswordOtpDto: VerifyForgotPasswordOtpDto
+  ): Promise<VerifyForgotPasswordOtpResponseDto> {
+    const { email, otp } = verifyForgotPasswordOtpDto;
+    const normalizedEmail = normalizeEmail(email);
+
+    try {
+      // Verify the OTP token for password reset
+      const { user: supabaseUser, session } =
+        await this.supabaseService.verifyPasswordResetOtp(normalizedEmail, otp);
+
+      if (!supabaseUser || !session) {
+        throw new BadRequestException("Invalid OTP code");
+      }
+
+      // Check if user exists in our database
+      const user = await this.prisma.user.findUnique({
+        where: { id: supabaseUser.id },
+      });
+
+      if (!user) {
+        throw new BadRequestException("User not found");
+      }
+
+      return {
+        session: {
+          access_token: session.access_token,
+          refresh_token: session.refresh_token,
+        },
+      };
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new BadRequestException("Invalid or expired OTP code");
+    }
+  }
+
+  async setNewPassword(userId: string, setNewPasswordDto: SetNewPasswordDto) {
+    const { newPassword } = setNewPasswordDto;
+
+    try {
+      // Check if user exists in our database
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+      });
+
+      if (!user) {
+        throw new BadRequestException("User not found");
+      }
+
+      // Update password in Supabase (this requires an authenticated session)
+      await this.supabaseService.updateUserPassword(newPassword);
+    } catch (error: unknown) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new BadRequestException("Failed to update password");
+    }
   }
 
   //private functions

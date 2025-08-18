@@ -6,7 +6,6 @@ import {
   HttpCode,
   HttpStatus,
 } from "@nestjs/common";
-import { ApiTags, ApiBearerAuth } from "@nestjs/swagger";
 import { ReferralService } from "./referral.service";
 import { ClaimReferralDto } from "./dto/request";
 import { JwtAuthGuard } from "../guards";
@@ -14,8 +13,6 @@ import { GetUserId } from "../decorators";
 import { ResponseUtil } from "../util/response.util";
 import { ClaimReferralApiResponseDto } from "./dto/api-response";
 
-@ApiTags("Referrals")
-@ApiBearerAuth()
 @Controller("referral")
 export class ReferralController {
   constructor(private referralService: ReferralService) {}
